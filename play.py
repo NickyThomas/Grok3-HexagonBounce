@@ -21,7 +21,9 @@ BUTTON_COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 
 BALL_RADIUS = 15
 GRAVITY = 0.2
 FRICTION = 0.99
-BALL_MASS = 1  # Assuming equal mass for all balls for simplicity
+BALL_MASS = 1
+DEFAULT_BOUNCE = 0.8  # Default bounce factor (energy retention)
+bounce_factor = DEFAULT_BOUNCE  # Current bounce factor
 
 # Hexagon properties
 HEX_RADIUS = 200
@@ -34,6 +36,8 @@ BUTTON_WIDTH = 100
 BUTTON_HEIGHT = 40
 ADD_BUTTON_POS = [WIDTH - 120, 50]
 REMOVE_BUTTON_POS = [WIDTH - 120, 110]
+BOUNCY_BUTTON_POS = [WIDTH - 120, 170]
+RESTORE_BUTTON_POS = [WIDTH - 120, 230]
 
 class Ball:
     def __init__(self):
@@ -77,37 +81,26 @@ def reflect_velocity(vel, wall_start, wall_end):
 
 def ball_collision(ball1, ball2):
     """Handle collision between two balls"""
-    # Calculate distance between balls
     dx = ball2.pos[0] - ball1.pos[0]
     dy = ball2.pos[1] - ball1.pos[1]
     distance = math.sqrt(dx*dx + dy*dy)
     
     if distance < 2 * BALL_RADIUS and distance > 0:
-        # Normalize collision normal
         nx = dx / distance
         ny = dy / distance
-        
-        # Relative velocity
         rvx = ball2.vel[0] - ball1.vel[0]
         rvy = ball2.vel[1] - ball1.vel[1]
-        
-        # Velocity along normal
         vel_along_normal = rvx * nx + rvy * ny
         
-        # If balls are moving apart, no collision response needed
         if vel_along_normal > 0:
             return
         
-        # Elastic collision impulse (assuming equal mass)
         impulse = 2 * vel_along_normal / (BALL_MASS + BALL_MASS)
-        
-        # Update velocities
         ball1.vel[0] += impulse * BALL_MASS * nx
         ball1.vel[1] += impulse * BALL_MASS * ny
         ball2.vel[0] -= impulse * BALL_MASS * nx
         ball2.vel[1] -= impulse * BALL_MASS * ny
         
-        # Separate overlapping balls
         overlap = 2 * BALL_RADIUS - distance
         ball1.pos[0] -= overlap * nx * 0.5
         ball1.pos[1] -= overlap * ny * 0.5
@@ -142,20 +135,22 @@ while running:
                 balls.append(Ball())
             elif remove_button_rect.collidepoint(mouse_pos) and len(balls) > 0:
                 balls.pop()
+            elif bouncy_button_rect.collidepoint(mouse_pos):
+                bounce_factor = min(1.0, bounce_factor + 0.1)  # Increase bounciness, cap at 1.0
+            elif restore_button_rect.collidepoint(mouse_pos):
+                bounce_factor = DEFAULT_BOUNCE  # Restore default bounciness
 
     # Get current hexagon vertices
     vertices = get_hexagon_vertices(hex_center, HEX_RADIUS, hex_angle)
 
     # Update all balls
     for ball in balls:
-        # Apply physics
         ball.vel[1] += GRAVITY
         ball.vel[0] *= FRICTION
         ball.vel[1] *= FRICTION
         
         next_pos = [ball.pos[0] + ball.vel[0], ball.pos[1] + ball.vel[1]]
         
-        # Check wall collisions
         collision_detected = False
         for i in range(6):
             wall_start = vertices[i]
@@ -170,8 +165,8 @@ while running:
                 ball.pos[0] += normal[0] * penetration
                 ball.pos[1] += normal[1] * penetration
                 ball.vel = reflect_velocity(ball.vel, wall_start, wall_end)
-                ball.vel[0] *= 0.8
-                ball.vel[1] *= 0.8
+                ball.vel[0] *= bounce_factor  # Use dynamic bounce factor
+                ball.vel[1] *= bounce_factor
                 collision_detected = True
                 break
         
@@ -196,6 +191,8 @@ while running:
     # Draw buttons
     add_button_rect = draw_button(ADD_BUTTON_POS, "Add Ball", True)
     remove_button_rect = draw_button(REMOVE_BUTTON_POS, "Remove", len(balls) > 0)
+    bouncy_button_rect = draw_button(BOUNCY_BUTTON_POS, "More Bouncy", bounce_factor < 1.0)
+    restore_button_rect = draw_button(RESTORE_BUTTON_POS, "Restore", bounce_factor != DEFAULT_BOUNCE)
 
     # Update display
     pygame.display.flip()
