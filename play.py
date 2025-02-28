@@ -22,22 +22,27 @@ BALL_RADIUS = 15
 GRAVITY = 0.2
 FRICTION = 0.99
 BALL_MASS = 1
-DEFAULT_BOUNCE = 0.8  # Default bounce factor (energy retention)
-bounce_factor = DEFAULT_BOUNCE  # Current bounce factor
+DEFAULT_BOUNCE = 0.8
+bounce_factor = DEFAULT_BOUNCE
 
 # Hexagon properties
 HEX_RADIUS = 200
 hex_center = [WIDTH // 2 - 50, HEIGHT // 2]
 hex_angle = 0
-rotation_speed = 0.02
+DEFAULT_ROTATION_SPEED = 0.02
+rotation_speed = DEFAULT_ROTATION_SPEED
+MAX_ROTATION_SPEED = DEFAULT_ROTATION_SPEED * 20
+MIN_ROTATION_SPEED = -MAX_ROTATION_SPEED
 
 # Button properties
 BUTTON_WIDTH = 100
 BUTTON_HEIGHT = 40
 ADD_BUTTON_POS = [WIDTH - 120, 50]
-REMOVE_BUTTON_POS = [WIDTH - 120, 110]
-BOUNCY_BUTTON_POS = [WIDTH - 120, 170]
-RESTORE_BUTTON_POS = [WIDTH - 120, 230]
+REMOVE_BUTTON_POS = [WIDTH - 120, 100]
+BOUNCY_BUTTON_POS = [WIDTH - 120, 150]
+RESTORE_BUTTON_POS = [WIDTH - 120, 200]
+FASTER_BUTTON_POS = [WIDTH - 120, 250]
+SLOWER_BUTTON_POS = [WIDTH - 120, 300]
 
 class Ball:
     def __init__(self):
@@ -107,6 +112,42 @@ def ball_collision(ball1, ball2):
         ball2.pos[0] += overlap * nx * 0.5
         ball2.pos[1] += overlap * ny * 0.5
 
+def move_ball(ball, vertices, dt=1.0, steps=10):
+    """Move ball with continuous collision detection"""
+    vel = [ball.vel[0] * dt, ball.vel[1] * dt]
+    step_vel = [vel[0] / steps, vel[1] / steps]
+    current_pos = ball.pos.copy()
+    
+    for _ in range(steps):
+        next_pos = [current_pos[0] + step_vel[0], current_pos[1] + step_vel[1]]
+        
+        for i in range(6):
+            wall_start = vertices[i]
+            wall_end = vertices[(i + 1) % 6]
+            dist = line_point_distance(wall_start, wall_end, next_pos)
+            
+            if dist <= BALL_RADIUS:
+                # Move back to contact point
+                wall_vec = [wall_end[0] - wall_start[0], wall_end[1] - wall_start[1]]
+                wall_len = math.sqrt(wall_vec[0]**2 + wall_vec[1]**2)
+                normal = [-wall_vec[1]/wall_len, wall_vec[0]/wall_len]
+                penetration = BALL_RADIUS - dist
+                current_pos[0] += normal[0] * penetration
+                current_pos[1] += normal[1] * penetration
+                
+                # Reflect velocity
+                ball.vel = reflect_velocity(ball.vel, wall_start, wall_end)
+                ball.vel[0] *= bounce_factor
+                ball.vel[1] *= bounce_factor
+                
+                # Update step velocity for remaining steps
+                step_vel = [ball.vel[0] * dt / steps, ball.vel[1] * dt / steps]
+                break
+        else:
+            current_pos = next_pos.copy()
+    
+    ball.pos = current_pos
+
 def draw_button(pos, text, active):
     """Draw a button and return its rect"""
     rect = pygame.Rect(pos[0], pos[1], BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -136,9 +177,13 @@ while running:
             elif remove_button_rect.collidepoint(mouse_pos) and len(balls) > 0:
                 balls.pop()
             elif bouncy_button_rect.collidepoint(mouse_pos):
-                bounce_factor = min(1.0, bounce_factor + 0.1)  # Increase bounciness, cap at 1.0
+                bounce_factor += 0.1
             elif restore_button_rect.collidepoint(mouse_pos):
-                bounce_factor = DEFAULT_BOUNCE  # Restore default bounciness
+                bounce_factor = DEFAULT_BOUNCE
+            elif faster_button_rect.collidepoint(mouse_pos):
+                rotation_speed = min(rotation_speed + 0.02, MAX_ROTATION_SPEED)
+            elif slower_button_rect.collidepoint(mouse_pos):
+                rotation_speed = max(rotation_speed - 0.02, MIN_ROTATION_SPEED)
 
     # Get current hexagon vertices
     vertices = get_hexagon_vertices(hex_center, HEX_RADIUS, hex_angle)
@@ -148,30 +193,7 @@ while running:
         ball.vel[1] += GRAVITY
         ball.vel[0] *= FRICTION
         ball.vel[1] *= FRICTION
-        
-        next_pos = [ball.pos[0] + ball.vel[0], ball.pos[1] + ball.vel[1]]
-        
-        collision_detected = False
-        for i in range(6):
-            wall_start = vertices[i]
-            wall_end = vertices[(i + 1) % 6]
-            dist = line_point_distance(wall_start, wall_end, next_pos)
-            
-            if dist <= BALL_RADIUS:
-                wall_vec = [wall_end[0] - wall_start[0], wall_end[1] - wall_start[1]]
-                wall_len = math.sqrt(wall_vec[0]**2 + wall_vec[1]**2)
-                normal = [-wall_vec[1]/wall_len, wall_vec[0]/wall_len]
-                penetration = BALL_RADIUS - dist
-                ball.pos[0] += normal[0] * penetration
-                ball.pos[1] += normal[1] * penetration
-                ball.vel = reflect_velocity(ball.vel, wall_start, wall_end)
-                ball.vel[0] *= bounce_factor  # Use dynamic bounce factor
-                ball.vel[1] *= bounce_factor
-                collision_detected = True
-                break
-        
-        if not collision_detected:
-            ball.pos = next_pos.copy()
+        move_ball(ball, vertices)
 
     # Check ball-to-ball collisions
     for i in range(len(balls)):
@@ -191,8 +213,10 @@ while running:
     # Draw buttons
     add_button_rect = draw_button(ADD_BUTTON_POS, "Add Ball", True)
     remove_button_rect = draw_button(REMOVE_BUTTON_POS, "Remove", len(balls) > 0)
-    bouncy_button_rect = draw_button(BOUNCY_BUTTON_POS, "More Bouncy", bounce_factor < 1.0)
+    bouncy_button_rect = draw_button(BOUNCY_BUTTON_POS, "More Bouncy", True)
     restore_button_rect = draw_button(RESTORE_BUTTON_POS, "Restore", bounce_factor != DEFAULT_BOUNCE)
+    faster_button_rect = draw_button(FASTER_BUTTON_POS, "Spin Faster", rotation_speed < MAX_ROTATION_SPEED)
+    slower_button_rect = draw_button(SLOWER_BUTTON_POS, "Spin Slower", rotation_speed > MIN_ROTATION_SPEED)
 
     # Update display
     pygame.display.flip()
